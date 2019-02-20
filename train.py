@@ -42,11 +42,6 @@ def train():
                     t0 = time.time()
                     out = net(images)
                     optimizer.zero_grad()
-                    '''
-                    print(out[0].shape)
-                    print(out[1].shape)
-                    print(out[2].shape)
-                    '''
                     loss_l, loss_c = criterion(out, targets)
                     loss = loss_l + loss_c
                     loss.backward()
@@ -68,4 +63,4 @@ def train():
 
 
 
-train()
+#train()

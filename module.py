@@ -1,10 +1,12 @@
 import torch
 import torch.utils.model_zoo as model_zoo
 import pretrainedmodels.models.pnasnet as pnasnet
+import pretrainedmodels.models.senet as senet
 import collections
 import layers.functions.detection as detection
 import layers.functions.prior_box as prior_box
 import data
+import models
 
 def conv_block(in_channels, out_channels, kernel_size, stride, padding=0):
     return torch.nn.Sequential(
@@ -181,7 +183,7 @@ class TextBox(torch.nn.Module):
         rotates = []
         confidences = []
 
-         for (x, l, q, r, c) in zip(feature_pyramids, self.loc_layers, self.quad_layers, self.rot_layers, self.conf_layers):
+        for (x, l, q, r, c) in zip(feature_pyramids, self.loc_layers, self.quad_layers, self.rot_layers, self.conf_layers):
             locations.append(l(x).permute(0, 2, 3, 1).contiguous())
             quadrilateral.append(q(x).permute(0, 2, 3, 1).contignous())
             rotates.append(r(x).permute(0, 2, 3, 1).contignous())
@@ -192,10 +194,10 @@ class TextBox(torch.nn.Module):
         rotates = torch.cat([rot.view(rot.shape[0], -1) for rot in rotates], 1)
         confidences = torch.cat([con.view(con.shape[0], -1) for con in confidences], 1)
         
-        return locations.view(locations.shape[0], -1, 4), 
+        return (locations.view(locations.shape[0], -1, 4), 
             quadrilaterals.view(quadrilaterals.shape[0], -1, 8),
             rotates.view(rotates.shape[0], -1, 8), 
-            confidences.view(confidences.shape[0], -1, self.num_classes)
+            confidences.view(confidences.shape[0], -1, self.num_classes))
 
 class PNASNetFE(torch.nn.Module):
 
@@ -273,28 +275,45 @@ class M2Det(torch.nn.Module):
 
         self.cfg = (data.coco, data.voc)[num_classes == 21]
         self.prior_boxes = prior_box.PriorBox(self.cfg).forward()
-        self.settings = pnasnet.pretrained_settings[backborn]["imagenet"]
+        self.backborn = backborn
+        if self.backborn == "pnasnet5large":
+            self.settings = pnasnet.pretrained_settings[backborn]["imagenet"]
+
+            self.fe = PNASNetFE()
         
-        self.backborn = PNASNetFE()
-        #self.backborn.load_state_dict(model_zoo.load_url(self.settings["url"]), strict=False)
-        
-        self.ffm_v1 = FFMv3(in_channels=[4320, 2160, 1080], out_channels=[460, 230, 120])
-        self.ffm_v2s = torch.nn.ModuleList([
-            FFMv2(in_channels=810, out_channels=135) for i in  range(self.num_levels)])
-        self.tums = torch.nn.ModuleList([
-            TUM(in_channels=(810 if i == 0 else 270), out_channels=135, num_scales=self.num_scales) for i in range(self.num_levels)])
-        self.sfam = SFAM(in_channels=1080, mid_channels=68, out_channels=1080, num_levels=self.num_levels)
-        self.mb = MultiBox(in_channels=1080, num_classes=self.num_classes)
+            self.ffm_v1 = FFMv3(in_channels=[4320, 2160, 1080], out_channels=[460, 230, 120])
+            self.ffm_v2s = torch.nn.ModuleList([
+                FFMv2(in_channels=810, out_channels=135) for i in  range(self.num_levels)])
+            self.tums = torch.nn.ModuleList([
+                TUM(in_channels=(810 if i == 0 else 270), out_channels=135, num_scales=self.num_scales) for i in range(self.num_levels)])
+            self.sfam = SFAM(in_channels=1080, mid_channels=68, out_channels=1080, num_levels=self.num_levels)
+            self.mb = MultiBox(in_channels=1080, num_classes=self.num_classes)
+       
+        elif self.backborn == "se_resnext101_32x4d":
+            self.settings = senet.pretrained_settings[backborn]["imagenet"]
+            self.fe = models.modify_senet(senet.se_resnext101_32x4d())
+            self.ffm_v1 = FFMv1(in_channels=[2048, 1024], out_channels=[512, 256])
+            self.ffm_v2s = torch.nn.ModuleList([
+                FFMv2(in_channels=768, out_channels=128) for i in  range(self.num_levels)])
+            self.tums = torch.nn.ModuleList([
+                TUM(in_channels=(768 if i == 0 else 256), out_channels=128, num_scales=self.num_scales) for i in range(self.num_levels)])
+            self.sfam = SFAM(in_channels=1024, mid_channels=64, out_channels=1024, num_levels=self.num_levels)
+            self.mb = MultiBox(in_channels=1024, num_classes=self.num_classes)
+ 
         self.detect = detection.Detect(self.num_classes, 0, 200, 0.05, 0.45)
 
         for m in self.modules():
             if isinstance(m, torch.nn.Conv2d):
                 torch.nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-        self.backborn.load_state_dict(model_zoo.load_url(self.settings["url"]), strict=False)
+        self.fe.load_state_dict(model_zoo.load_url(self.settings["url"]), strict=False)
 
     def forward(self, x):
-        shallow, mid, deep = self.backborn(x)
-        x = self.ffm_v1(deep, mid, shallow)
+        if self.backborn == "pnasnet5large": 
+            shallow, mid, deep = self.fe(x)
+            x = self.ffm_v1(deep, mid, shallow)
+        else:
+            shallow, deep = self.fe(x)
+            x = self.ffm_v1(deep, shallow)
 
         feature_pyramids = []
         feature_pyramids.append(self.tums[0](x))
