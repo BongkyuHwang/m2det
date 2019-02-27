@@ -74,8 +74,8 @@ class SubtractMeans(object):
 
     def __call__(self, image, boxes=None, labels=None):
         image = image.astype(np.float32)
-        image -= self.mean
         image /= 255.
+        image -= self.mean
         return image.astype(np.float32), boxes, labels
 
 class Normalize(object):

@@ -7,8 +7,8 @@ import pretrainedmodels
 import pretrainedmodels.models.pnasnet as pnasnet
 import pretrainedmodels.models.senet as senet
 
-from .. import data
-from .. import layers
+import data
+import layers
 
 model_names = ["pnasnet5large", "se_resnext101_32x4d"]
 
@@ -94,7 +94,7 @@ class M2Det(torch.nn.Module):
             self.mb = layers.MultiBox(in_channels=1080, num_classes=self.num_classes)
 
         elif self.model_name == "se_resnext101_32x4d":
-            self.fe = models.modify_senet(senet.se_resnext101_32x4d(self.settings["num_classes"]))
+            self.fe = modify_senet(senet.se_resnext101_32x4d(self.settings["num_classes"]))
             self.ffm1 = layers.FFMv1(in_channels=[2048, 1024], out_channels=[512, 256])
             self.ffm2 = torch.nn.ModuleList([
                 layers.FFMv2(in_channels=768, out_channels=128) for i in  range(self.num_levels)])
@@ -118,8 +118,8 @@ class M2Det(torch.nn.Module):
 
         feature_pyramids = []
         feature_pyramids.append(self.tums[0](x))
-        for idx, (ffm_v2, tum) in enumerate(zip(self.ffm_v2s, self.tums[1:])):
-            feature_pyramids.append(tum(ffm_v2(x, feature_pyramids[idx][0])))
+        for idx, (ffm2, tum) in enumerate(zip(self.ffm2, self.tums[1:])):
+            feature_pyramids.append(tum(ffm2(x, feature_pyramids[idx][0])))
 
         feature_pyramids = self.sfam(feature_pyramids)
         locations, confidences = self.mb(feature_pyramids)

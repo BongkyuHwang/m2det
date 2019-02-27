@@ -5,6 +5,8 @@ import time
 import _init_paths
 import data
 import layers
+import models
+import utils
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
@@ -14,7 +16,7 @@ numpy.random.seed(0)
 def train():
     device = "cuda" if torch.cuda.is_available() == True else "cpu"
     print(device)
-    net = module.M2Det(num_classes=data.coco["num_classes"])
+    net = models.M2Det(num_classes=data.coco["num_classes"], model_name="se_resnext101_32x4d")
     net.to(device)
     print(data.COCO_ROOT)
     dataset = data.COCODetection(root="/home/mcmas/data/coco2017", image_set='train2017', transform=utils.augmentations.SSDAugmentation(data.coco["min_dim"], net.settings["mean"], net.settings["std"]))
@@ -53,4 +55,4 @@ def train():
     torch.save(net.state_dict(), "m2det320_coco_finish.pth")
 
 
-#train()
+train()
