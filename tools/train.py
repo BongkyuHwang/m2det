@@ -45,18 +45,13 @@ def train():
                         transform=utils.augmentations.SSDAugmentation(cfg["min_dim"], 
                         net.settings["mean"], net.settings["std"]))
  
-    #net = models.M2Det(num_classes=data.coco["num_classes"], model_name="se_resnext101_32x4d")
-
     net.to(device)
-    #dataset = data.VOCDetection(root=data.VOC_ROOT, transform=utils.augmentations.SSDAugmentation(data.coco["min_dim"], net.settings["mean"], net.settings["std"]))
     print(len(dataset)) 
     #dataset = data.COCODetection(root="/home/mcmas/data/coco2017", image_set='train2017', transform=utils.augmentations.SSDAugmentation(data.coco["min_dim"], net.settings["mean"], net.settings["std"]))
-    #dataset = data.COCODetection(root=data.COCO_ROOT, transform=augmentations.SSDAugmentation(data.coco["min_dim"], net.settings["mean"], net.settings["std"]))
     data_loader = torch.utils.data.DataLoader(dataset, args.batch_size, num_workers=8, shuffle=True, collate_fn=data.detection_collate, pin_memory=True, drop_last=True)
 
     optimizer = torch.optim.SGD(net.parameters(), lr=2e-3, momentum=0.9, weight_decay=5e-4)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [5, 90, 120], gamma=0.1)
-    #criterion = layers.MultiBoxLoss(num_classes=data.coco["num_classes"], overlap_thresh=0.5, prior_for_matching=True, bkg_label=0, neg_mining=True, neg_pos=3, neg_overlap=0.5, encode_target=False, use_gpu=True)
     criterion = layers.MultiBoxLoss(num_classes=cfg["num_classes"], overlap_thresh=0.5, prior_for_matching=True, bkg_label=0, neg_mining=True, neg_pos=3, neg_overlap=0.5, encode_target=False, use_gpu=True)
 
 
@@ -84,7 +79,7 @@ def train():
                         print("timer : %.4f sec." %(t1 - t0))
                         print("epoch " + repr(epoch) +" || iter " +repr(itr)+ " || loss : %.4f || " % ((loc_loss + conf_loss)/itr) + "loc_loss : %.4f ||" %(loc_loss/itr) + " conf_loss : %.4f || "%(conf_loss/itr), end=" ")
         print("saving state, epoch : ", epoch)
-        torch.save(net.state_dict(), "m2det320_voc_" + repr(epoch) + ".pth")
-    torch.save(net.state_dict(), "m2det320_voc_finish.pth")
+        torch.save(net.state_dict(), "m2det320_%s_%03d.pth"%(args.dataset, int(epoch)))
+    torch.save(net.state_dict(), "m2det320_%s_final.pth"%(args.dataset))
 
-#train()
+train()
