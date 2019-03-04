@@ -11,5 +11,3 @@ def focal_loss(input, target, num_classes, alpha=0.25, gamma=2.):
     loss = -w * pt.log() / gamma
     return loss.sum()
     
-
-
