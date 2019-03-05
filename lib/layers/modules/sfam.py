@@ -13,10 +13,10 @@ class SFAM(torch.nn.Module):
         
         self.SE = torch.nn.ModuleList(
                 [torch.nn.Sequential( 
-                    torch.nn.Linear(self.in_channels, self.mid_channels),
-                    torch.nn.Sigmoid(),
-                    torch.nn.Linear(self.mid_channels, self.out_channels),
-                    torch.nn.ReLU(inplace=True)) 
+                    torch.nn.Conv2d(self.in_channels, self.mid_channels, 1, 1, 0),
+                    torch.nn.ReLU(inplace=True),
+                    torch.nn.Conv2d(self.mid_channels, self.out_channels, 1, 1, 0),
+                    torch.nn.Sigmoid()) 
                 for i in range(self.pyramid_levels)]
                 )
         
@@ -32,9 +32,13 @@ class SFAM(torch.nn.Module):
             attention = torch.nn.functional.avg_pool2d(
                     aggregated_feature.clone(),
                     (width, height))
-            attention = attention.squeeze(-1).squeeze(-1)
+            #attention = attention.squeeze(-1).squeeze(-1)
+            #attention = attention.squeeze(-1)
 
-            attention = self.SE[idx](attention).unsqueeze(-1).unsqueeze(-1)
+
+            #attention = self.SE[idx](attention).unsqueeze(-1).unsqueeze(-1)
+            attention = self.SE[idx](attention)
+
 
             aggregated_feature_pyramids.append(aggregated_feature.mul_(attention))
 

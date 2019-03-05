@@ -15,7 +15,7 @@ parser.add_argument("--dataset", default="VOC", choices=["VOC", "COCO", "ST"],
 parser.add_argument("--basenet", default="se_resnext101_32x4d", 
                     choices=["pnasnet5large", "se_resnext101_32x4d"], 
                     type=str, help="Base Pretrained model")
-parser.add_argument("--batch_size", default=7, type=int, help="Batch size for trainig")
+parser.add_argument("--batch_size", default=6, type=int, help="Batch size for trainig")
 
 args = parser.parse_args()
 
@@ -23,6 +23,9 @@ torch.manual_seed(0)
 #torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
 numpy.random.seed(0)
+def set_parameter_requires_grad(model, flag):
+    for param in model.parameters():
+        param.requires_grad = flag
 
 def train():
     device = "cuda" if torch.cuda.is_available() == True else "cpu"
@@ -41,6 +44,8 @@ def train():
         dataset_cls = data.STDetection
 
     net = models.M2Det(num_classes=cfg["num_classes"], model_name=args.basenet)
+    net.train()
+    set_parameter_requires_grad(net.fe, False)
     dataset = dataset_cls(root=dataset_root, 
                         transform=utils.augmentations.SSDAugmentation(cfg["min_dim"], 
                         net.settings["mean"], net.settings["std"]))
@@ -50,14 +55,17 @@ def train():
     #dataset = data.COCODetection(root="/home/mcmas/data/coco2017", image_set='train2017', transform=utils.augmentations.SSDAugmentation(data.coco["min_dim"], net.settings["mean"], net.settings["std"]))
     data_loader = torch.utils.data.DataLoader(dataset, args.batch_size, num_workers=8, shuffle=True, collate_fn=data.detection_collate, pin_memory=True, drop_last=True)
 
-    optimizer = torch.optim.SGD(net.parameters(), lr=2e-3, momentum=0.9, weight_decay=5e-4)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [5, 90, 120], gamma=0.1)
+    optimizer = torch.optim.SGD(net.parameters(), lr=4e-3, momentum=0.9, weight_decay=5e-4)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [90, 120, 150], gamma=0.1)
     criterion = layers.MultiBoxLoss(num_classes=cfg["num_classes"], overlap_thresh=0.5, prior_for_matching=True, bkg_label=0, neg_mining=True, neg_pos=3, neg_overlap=0.5, encode_target=False, use_gpu=True)
 
 
-    for epoch in range(1, 151):
+    for epoch in range(1, 161):
         loc_loss = 0
         conf_loss = 0
+        if epoch == 6:
+            set_parameter_requires_grad(net.fe, True)
+
         scheduler.step()
         for itr, (images, targets) in enumerate(data_loader):
             images = images.to(device)

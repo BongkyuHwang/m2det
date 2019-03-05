@@ -36,7 +36,7 @@ def modify_senet(model):
         x2 = self.layer2(x1)
         x3 = self.layer3(x2)
         x4 = self.layer4(x3)
-        return x3, x4
+        return x2, x4
 
     model.forward = types.MethodType(forward, model)
 
@@ -89,23 +89,27 @@ class M2Det(torch.nn.Module):
             self.ffm2 = torch.nn.ModuleList([
                 layers.FFMv2(in_channels=810, out_channels=135) for i in  range(self.num_levels)]) 
             self.tums = torch.nn.ModuleList([
-                layers.TUM(in_channels=(810 if i == 0 else 270), out_channels=135, num_scales=self.num_scales) for i in range(self.num_levels)])
+                layers.TUM(in_channels=(810 if i == 0 else 270), out_channels=270, num_scales=self.num_scales) for i in range(self.num_levels)])
             self.sfam = layers.SFAM(in_channels=1080, mid_channels=68, out_channels=1080, num_levels=self.num_levels)
             self.mb = layers.MultiBox(in_channels=1080, num_classes=self.num_classes)
 
         elif self.model_name == "se_resnext101_32x4d":
             self.fe = modify_senet(senet.se_resnext101_32x4d(self.settings["num_classes"]))
-            self.ffm1 = layers.FFMv1(in_channels=[2048, 1024], out_channels=[512, 256])
+            self.ffm1 = layers.FFMv1(in_channels=[2048, 512], out_channels=[512, 256])
             self.ffm2 = torch.nn.ModuleList([
                 layers.FFMv2(in_channels=768, out_channels=128) for i in  range(self.num_levels)])
             self.tums = torch.nn.ModuleList([
-                layers.TUM(in_channels=(768 if i == 0 else 256), out_channels=128, num_scales=self.num_scales) for i in range(self.num_levels)])
-            self.sfam = layers.SFAM(in_channels=1024, mid_channels=64, out_channels=1024, num_levels=self.num_levels)
-            self.mb = layers.MultiBox(in_channels=1024, num_classes=self.num_classes)
+                layers.TUM(in_channels=(768 if i == 0 else 384), out_channels=256, num_scales=self.num_scales) for i in range(self.num_levels)])
+            self.sfam = layers.SFAM(in_channels=2048, mid_channels=2048//16, out_channels=2048, num_levels=self.num_levels)
+            self.mb = layers.MultiBox(in_channels=2048, num_classes=self.num_classes)
+        self.norm = torch.nn.BatchNorm2d(2048)
         self.detect = layers.Detect(self.num_classes, 0, 200, 0.05, 0.45)
         for m in self.modules():
             if isinstance(m, torch.nn.Conv2d):
                 torch.nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+            if isinstance(m, torch.nn.BatchNorm2d):
+                torch.nn.init.constant_(m.weight, 1)
+                torch.nn.init.constant_(m.bias, 0)
         self.fe.load_state_dict(model_zoo.load_url(self.settings["url"]), strict=False)
 
     def forward(self, x):
@@ -122,6 +126,7 @@ class M2Det(torch.nn.Module):
             feature_pyramids.append(tum(ffm2(x, feature_pyramids[idx][0])))
 
         feature_pyramids = self.sfam(feature_pyramids)
+        feature_pyramids[0] = self.norm(feature_pyramids[0])
         locations, confidences = self.mb(feature_pyramids)
         
         if self.phase == "test":

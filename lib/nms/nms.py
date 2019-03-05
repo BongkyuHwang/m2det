@@ -1,7 +1,7 @@
 import numpy as np
 
-from cpu_nms import cpu_nms
-from gpu_nms import gpu_nms
+from .cpu_nms import cpu_nms
+from .gpu_nms import gpu_nms
 
 
 def py_nms_wrapper(thresh):
@@ -79,7 +79,7 @@ def rescore(overlap, scores, thresh, type='gaussian'):
     return scores
 
 
-def soft_nms(dets, thresh, max_dets):
+def soft_nms(dets, scores, thresh, max_dets):
     if dets.shape[0] == 0:
         return np.zeros((0, 5))
 
@@ -87,10 +87,11 @@ def soft_nms(dets, thresh, max_dets):
     y1 = dets[:, 1]
     x2 = dets[:, 2]
     y2 = dets[:, 3]
-    scores = dets[:, 4]
+    #scores = dets[:, 4]
 
     areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-    order = scores.argsort()[::-1]
+    #order = scores.argsort()[::-1]
+    _, order = scores.sort(0)
     scores = scores[order]
 
     if max_dets == -1:
