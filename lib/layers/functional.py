@@ -10,11 +10,10 @@ from data import voc as cfg
 
 
 def focal_loss(input, target, num_classes, alpha=0.25, gamma=2.):
-    '''
     t = torch.eye(num_classes)[target].to(target.device)
     #t = t[:, 1:]
     xt = input * (2 * t - 1)
-    pt = (2 * xt + 1).sigmoid()
+    pt = (2 * xt + 1).sigmoid() + 1e-10
 
     w = alpha * t + (1 - alpha) * (1 - t)
     loss = -w * pt.log() / gamma
@@ -22,7 +21,7 @@ def focal_loss(input, target, num_classes, alpha=0.25, gamma=2.):
     '''
     N = input.size(0)
     C = input.size(1)
-    P = torch.nn.functional.softmax(input, 1)
+    P = torch.nn.functional.softmax(input, -1)
 
     class_mask = input.data.new(N, C).fill_(0)
     ids = target.view(-1, 1)
@@ -35,7 +34,7 @@ def focal_loss(input, target, num_classes, alpha=0.25, gamma=2.):
     log_p = torch.log(probs+eps)
     loss = -alpha * (torch.pow((1-probs), gamma)) * log_p
     return loss.sum()
-
+    '''
 def prior_box(cfg):
     """Compute priorbox coordinates in center-offset form for each source
     feature map.

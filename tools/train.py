@@ -45,6 +45,7 @@ def train():
 
     net = models.M2Det(num_classes=cfg["num_classes"], model_name=args.basenet)
     net.train()
+    net = torch.nn.DataParallel(net)
     set_parameter_requires_grad(net.fe, False)
     dataset = dataset_cls(root=dataset_root, 
                         transform=utils.augmentations.SSDAugmentation(cfg["min_dim"], 

@@ -44,7 +44,7 @@ class MultiBoxLoss(nn.Module):
         self.negpos_ratio = neg_pos
         self.neg_overlap = neg_overlap
         self.variance = cfg['variance']
-        self.focal_loss = FocalLoss(self.num_classes, 0.25, smooth=0.75, size_average=False)
+        self.focal_loss = FocalLoss(self.num_classes, 0.25, balance_index=0, size_average=False)
 
     def forward(self, predictions, targets):
         """Multibox Loss
@@ -110,9 +110,9 @@ class MultiBoxLoss(nn.Module):
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
         conf_p = conf_data[(pos_idx+neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos+neg).gt(0)]
-        #loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
+        loss_c = F.cross_entropy(conf_p, targets_weighted, size_average=False)
         #loss_c = focal_loss(conf_p, targets_weighted, self.num_classes)
-        loss_c = self.focal_loss(conf_p, targets_weighted)
+        #loss_c = self.focal_loss(conf_p, targets_weighted)
         # Sum of losses: L(x,c,l,g) = (Lconf(x, c) + αLloc(x,l,g)) / N
 
         N = num_pos.data.sum()
