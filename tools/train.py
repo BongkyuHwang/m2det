@@ -45,11 +45,11 @@ def train():
 
     net = models.M2Det(num_classes=cfg["num_classes"], model_name=args.basenet)
     net.train()
-    net = torch.nn.DataParallel(net)
-    set_parameter_requires_grad(net.fe, False)
     dataset = dataset_cls(root=dataset_root, 
                         transform=utils.augmentations.SSDAugmentation(cfg["min_dim"], 
                         net.settings["mean"], net.settings["std"]))
+    net = torch.nn.DataParallel(net)
+    set_parameter_requires_grad(net.module.fe, False)
  
     net.to(device)
     print(len(dataset)) 
@@ -65,7 +65,7 @@ def train():
         loc_loss = 0
         conf_loss = 0
         if epoch == 6:
-            set_parameter_requires_grad(net.fe, True)
+            set_parameter_requires_grad(net.module.fe, True)
 
         scheduler.step()
         for itr, (images, targets) in enumerate(data_loader):
@@ -86,7 +86,9 @@ def train():
                     conf_loss += loss_c.item()
                     if itr % 10 == 0 and itr != 0:
                         print("timer : %.4f sec." %(t1 - t0))
-                        print("epoch " + repr(epoch) +" || iter " +repr(itr)+ " || loss : %.4f || " % ((loc_loss + conf_loss)/itr) + "loc_loss : %.4f ||" %(loc_loss/itr) + " conf_loss : %.4f || "%(conf_loss/itr), end=" ")
+                        print("epoch " + repr(epoch) +" || iter " +repr(itr)+ " || loss : %.4f || " % (loss.item()) + "loc_loss : %.4f ||" %(loss_l.item()) + " conf_loss : %.4f || "%(loss_c.item()), end=" ")
+        with open("loss.log", "a") as lp:
+            lp.write("%.4f %.4f %.4f\n"%((loc_loss + conf_loss) / itr, loc_loss / itr, conf_loss / itr))
         print("saving state, epoch : ", epoch)
         torch.save(net.state_dict(), "m2det320_%s_%03d.pth"%(args.dataset, int(epoch)))
     torch.save(net.state_dict(), "m2det320_%s_final.pth"%(args.dataset))
