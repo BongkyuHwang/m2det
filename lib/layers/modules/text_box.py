@@ -39,8 +39,9 @@ class TextBox(torch.nn.Module):
         rotates = torch.cat([rot.view(rot.shape[0], -1) for rot in rotates], 1)
         confidences = torch.cat([con.view(con.shape[0], -1) for con in confidences], 1)
         
-        return (locations.view(locations.shape[0], -1, 4), 
-            quadrilaterals.view(quadrilaterals.shape[0], -1, 8),
-            rotates.view(rotates.shape[0], -1, 8), 
-            confidences.view(confidences.shape[0], -1, self.num_classes))
+        return (torch.cat([locations.view(locations.shape[0], -1, 4), 
+                            quadrilaterals.view(quadrilaterals.shape[0], -1, 8),
+                            rotates.view(rotates.shape[0], -1, 5)],
+                            dim=2),
+                confidences.view(confidences.shape[0], -1, self.num_classes))
 

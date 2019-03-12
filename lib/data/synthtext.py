@@ -1,45 +1,21 @@
 from .config import HOME
 import os
-import os.path as osp
 import sys
 import torch
 import torch.utils.data as data
 import torchvision.transforms as transforms
 import cv2
 import numpy as np
+import scipy.io 
 
 ST_ROOT = osp.join(HOME, 'data/SynthText/')
 IMAGES = 'images'
 ANNOTATIONS = 'annotations'
 COCO_API = 'PythonAPI'
 INSTANCES_SET = 'instances_{}.json'
-COCO_CLASSES = ('person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus',
-                'train', 'truck', 'boat', 'traffic light', 'fire', 'hydrant',
-                'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog',
-                'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra',
-                'giraffe', 'backpack', 'umbrella', 'handbag', 'tie',
-                'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball',
-                'kite', 'baseball bat', 'baseball glove', 'skateboard',
-                'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup',
-                'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
-                'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza',
-                'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed',
-                'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote',
-                'keyboard', 'cell phone', 'microwave oven', 'toaster', 'sink',
-                'refrigerator', 'book', 'clock', 'vase', 'scissors',
-                'teddy bear', 'hair drier', 'toothbrush')
+ST_CLASSES = ('background', 'text')
 
-
-def get_label_map(label_file):
-    label_map = {}
-    labels = open(label_file, 'r')
-    for line in labels:
-        ids = line.split(',')
-        label_map[int(ids[0])] = int(ids[1])
-    return label_map
-
-
-class COCOAnnotationTransform(object):
+class STAnnotationTransform(object):
     """Transforms a COCO annotation into a Tensor of bbox coords and label index
     Initilized with a dictionary lookup of classnames to indexes
     """
@@ -72,22 +48,30 @@ class COCOAnnotationTransform(object):
         return res  # [[xmin, ymin, xmax, ymax, label_idx], ... ]
 
 
-class COCODetection(data.Dataset):
-    """`MS Coco Detection <http://mscoco.org/dataset/#detections-challenge2016>`_ Dataset.
+class STDetection(data.Dataset):
+    """`SynthText Detection dataset.
     Args:
         root (string): Root directory where images are downloaded to.
-        set_name (string): Name of the specific set of COCO images.
         transform (callable, optional): A function/transform that augments the
                                         raw images`
         target_transform (callable, optional): A function/transform that takes
         in the target (bbox) and transforms it.
     """
 
-    def __init__(self, root, image_set='trainval35k', transform=None,
-                 target_transform=COCOAnnotationTransform(), dataset_name='MS COCO'):
-        sys.path.append(osp.join(root, COCO_API))
-        from pycocotools.coco import COCO
-        self.root = osp.join(root, IMAGES, image_set)
+    def __init__(self, root, transform=None,
+                 target_transform=STAnnotationTransform(), dataset_name='SynthText'):
+        self.root = root
+        self.gt_path = os.path.join(self.root, "gt.mat")
+        data = scipy.io.loadmat(self.gt_path)
+        
+        self.im_names = []
+        self.texts = []
+        self.bboxes = []
+        for im_name, text, bbox in zip(data["imnames"][0], data["txt"][0], data["wordBB"][0]):
+            self.im_names.append(image_name)
+
+
+
         self.coco = COCO(osp.join(root, ANNOTATIONS,
                                   INSTANCES_SET.format(image_set)))
         self.ids = list(self.coco.imgToAnns.keys())

@@ -2,20 +2,22 @@ import torch
 import numpy
 import time
 import argparse
+import os
+import datetime
 
 import _init_paths
 import data
 import layers
 import models
 import utils
-
+import optim
 parser = argparse.ArgumentParser(description="M2Det Training")
 parser.add_argument("--dataset", default="VOC", choices=["VOC", "COCO", "ST"], 
                     type=str, help="VOC|COCO|ST")
 parser.add_argument("--basenet", default="se_resnext101_32x4d", 
                     choices=["pnasnet5large", "se_resnext101_32x4d"], 
                     type=str, help="Base Pretrained model")
-parser.add_argument("--batch_size", default=6, type=int, help="Batch size for trainig")
+parser.add_argument("--batch_size", default=5, type=int, help="Batch size for trainig")
 
 args = parser.parse_args()
 
@@ -30,6 +32,7 @@ def set_parameter_requires_grad(model, flag):
 def train():
     device = "cuda" if torch.cuda.is_available() == True else "cpu"
     print(device)
+
     if args.dataset == "VOC":
         cfg = data.voc
         dataset_root = data.VOC_ROOT
@@ -42,6 +45,12 @@ def train():
         cfg = data.st
         dataset_root = data.ST_ROOT
         dataset_cls = data.STDetection
+        milestones = []
+    
+    if not os.path.exists("models"):
+        os.mkdir("models")
+    root_path = os.path.join("models", "%s_%s"%(args.dataset, datetime.datetime.now()))
+    os.mkdir(root_path)
 
     net = models.M2Det(num_classes=cfg["num_classes"], model_name=args.basenet)
     net.train()
@@ -53,15 +62,14 @@ def train():
  
     net.to(device)
     print(len(dataset)) 
-    #dataset = data.COCODetection(root="/home/mcmas/data/coco2017", image_set='train2017', transform=utils.augmentations.SSDAugmentation(data.coco["min_dim"], net.settings["mean"], net.settings["std"]))
     data_loader = torch.utils.data.DataLoader(dataset, args.batch_size, num_workers=8, shuffle=True, collate_fn=data.detection_collate, pin_memory=True, drop_last=True)
 
     optimizer = torch.optim.SGD(net.parameters(), lr=4e-3, momentum=0.9, weight_decay=5e-4)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [90, 120, 150], gamma=0.1)
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, cfg["milestones"], cfg["gammas"])
     criterion = layers.MultiBoxLoss(num_classes=cfg["num_classes"], overlap_thresh=0.5, prior_for_matching=True, bkg_label=0, neg_mining=True, neg_pos=3, neg_overlap=0.5, encode_target=False, use_gpu=True)
 
 
-    for epoch in range(1, 161):
+    for epoch in range(1, cfg["max_epoch"]+1):
         loc_loss = 0
         conf_loss = 0
         if epoch == 6:
@@ -87,10 +95,12 @@ def train():
                     if itr % 10 == 0 and itr != 0:
                         print("timer : %.4f sec." %(t1 - t0))
                         print("epoch " + repr(epoch) +" || iter " +repr(itr)+ " || loss : %.4f || " % (loss.item()) + "loc_loss : %.4f ||" %(loss_l.item()) + " conf_loss : %.4f || "%(loss_c.item()), end=" ")
-        with open("loss.log", "a") as lp:
+        with open(os.path.join(root_path, "loss.log"), "a") as lp:
             lp.write("%.4f %.4f %.4f\n"%((loc_loss + conf_loss) / itr, loc_loss / itr, conf_loss / itr))
-        print("saving state, epoch : ", epoch)
-        torch.save(net.state_dict(), "m2det320_%s_%03d.pth"%(args.dataset, int(epoch)))
-    torch.save(net.state_dict(), "m2det320_%s_final.pth"%(args.dataset))
+        if epoch != 0 and epoch % 10 == 0:
+            print("saving state, epoch : ", epoch)
+            torch.save(net.state_dict(), os.path.join(root_path, "m2det320_%s_%03d.pth"%(args.dataset, int(epoch))))
+
+    torch.save(net.state_dict(), os.path.join(root_path, "m2det320_%s_final.pth"%(args.dataset)))
 
 train()

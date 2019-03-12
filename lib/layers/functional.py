@@ -4,37 +4,18 @@ from itertools import product as product
 import torch
 from torch.autograd import Function
 from .box_utils import decode, nms
-#from ...data import voc as cfg
 from data import voc as cfg
 
-
-
 def focal_loss(input, target, num_classes, alpha=0.25, gamma=2.):
-    t = torch.eye(num_classes)[target].to(target.device)
-    #t = t[:, 1:]
-    xt = input * (2 * t - 1)
-    pt = (2 * xt + 1).sigmoid() + 1e-10
+    target = torch.eye(num_classes)[target].to(target.device)
+    sigmoid_p = input.sigmoid()
+    zeros = sigmoid_p.new(sigmoid_p.shape).fill_(0)
+    pos_p_sub = torch.where(target > zeros, target - sigmoid_p, zeros)
+    pos_n_sub = torch.where(target == zeros, sigmoid_p, zeros)
+    loss = -alpha * (pos_p_sub ** gamma) * torch.log(torch.clamp(sigmoid_p, 1e-10, 1.0)) - (1 - alpha) * (pos_n_sub ** gamma) * torch.log(torch.clamp(1.0 - sigmoid_p, 1e-10, 1.0))
 
-    w = alpha * t + (1 - alpha) * (1 - t)
-    loss = -w * pt.log() / gamma
     return loss.sum()
-    '''
-    N = input.size(0)
-    C = input.size(1)
-    P = torch.nn.functional.softmax(input, -1)
 
-    class_mask = input.data.new(N, C).fill_(0)
-    ids = target.view(-1, 1)
-    class_mask.scatter_(1, ids.data, 1.)
-    alpha = torch.ones(num_classes, 1)[ids.view(-1)]
-    if input.is_cuda:
-        alpha = alpha.cuda()
-    probs = (P * class_mask).sum(1).view(-1, 1)
-    eps = 1e-5 
-    log_p = torch.log(probs+eps)
-    loss = -alpha * (torch.pow((1-probs), gamma)) * log_p
-    return loss.sum()
-    '''
 def prior_box(cfg):
     """Compute priorbox coordinates in center-offset form for each source
     feature map.
