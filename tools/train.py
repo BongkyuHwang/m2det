@@ -96,7 +96,7 @@ def train():
                         print("timer : %.4f sec." %(t1 - t0))
                         print("epoch " + repr(epoch) +" || iter " +repr(itr)+ " || loss : %.4f || " % (loss.item()) + "loc_loss : %.4f ||" %(loss_l.item()) + " conf_loss : %.4f || "%(loss_c.item()), end=" ")
         with open(os.path.join(root_path, "loss.log"), "a") as lp:
-            lp.write("%.4f %.4f %.4f\n"%((loc_loss + conf_loss) / itr, loc_loss / itr, conf_loss / itr))
+            lp.write("%d %.4f %.4f %.4f\n"%(int(epoch), (loc_loss + conf_loss) / itr, loc_loss / itr, conf_loss / itr))
         if epoch != 0 and epoch % 10 == 0:
             print("saving state, epoch : ", epoch)
             torch.save(net.state_dict(), os.path.join(root_path, "m2det320_%s_%03d.pth"%(args.dataset, int(epoch))))

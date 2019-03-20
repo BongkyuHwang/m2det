@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import types
 from numpy import random
+from layers import box_utils
 
 def intersect(box_a, box_b):
     max_xy = np.minimum(box_a[:, 2:], box_b[2:])
@@ -30,6 +31,23 @@ def jaccard_numpy(box_a, box_b):
               (box_b[3]-box_b[1]))  # [A,B]
     union = area_a + area_b - inter
     return inter / union  # [A,B]
+
+
+def coverage_numpy(box_a, box_b):
+    """Compute the object coverage of two sets of boxes.  The objects coverage
+    is simply the intersection over union of two boxes.
+    E.g.:
+        A ∩ B / B = A ∩ B /  area(B))
+    Args:
+        box_a: Multiple bounding boxes, Shape: [num_boxes,4]
+        box_b: Single bounding box, Shape: [4]
+    Return:
+        jaccard overlap: Shape: [box_a.shape[0], box_a.shape[1]]
+    """
+    inter = intersect(box_a, box_b)
+    area_b = ((box_b[2]-box_b[0]) *
+              (box_b[3]-box_b[1]))  # [A,B]
+    return inter / area_b  # [A,B]
 
 
 class Compose(object):
@@ -229,7 +247,7 @@ class RandomSampleCrop(object):
             boxes (Tensor): the adjusted bounding boxes in pt form
             labels (Tensor): the class labels for each bbox
     """
-    def __init__(self):
+    def __init__(self, coverage=False):
         self.sample_options = (
             # using entire original input image
             None,
@@ -241,14 +259,24 @@ class RandomSampleCrop(object):
             # randomly sample a patch
             (None, None),
         )
+        self.coverage = coverage
 
-    def __call__(self, image, boxes=None, labels=None):
+    def __call__(self, image, polygons=None, labels=None):
         height, width, _ = image.shape
+        if polygon.shape[-1] == 4:
+            boxes = polygons
+        elif polygon.shape[-1] == 8:
+            boxes = box_utils.polygon_to_bbox(polygons)
+
         while True:
             # randomly choose a mode
             mode = random.choice(self.sample_options)
             if mode is None:
-                return image, boxes, labels
+                if polygons.shape[-1] == 4:
+                    return image, polygon, labels
+                else:
+                    rboxes = box_utils.polygon_to_rbox(polygons)
+                return image, np.hstack([bboxes, polygons, rboxes]), labels
 
             min_iou, max_iou = mode
             if min_iou is None:
@@ -275,10 +303,14 @@ class RandomSampleCrop(object):
 
                 # calculate IoU (jaccard overlap) b/t the cropped and gt boxes
                 overlap = jaccard_numpy(boxes, rect)
-
                 # is min and max overlap constraint satisfied? if not try again
                 if overlap.min() < min_iou and max_iou < overlap.max():
                     continue
+                
+                if self.coverage == True:
+                    coverage = coverage_numpy(boxes, rect)
+                    if coverage.min() < min_iou and max_iou < coverage.max():
+                        continue
 
                 # cut the crop from the image
                 current_image = current_image[rect[1]:rect[3], rect[0]:rect[2],
@@ -316,9 +348,35 @@ class RandomSampleCrop(object):
                                                   rect[2:])
                 # adjust to crop (by substracting crop's left,top)
                 current_boxes[:, 2:] -= rect[:2]
+                
+                if polygons.shape[-1] == 4:
+                    return current_image, current_boxes, current_labels
 
-                return current_image, current_boxes, current_labels
+                current_polygons = polygons[mask, :].copy()
 
+                # should we use the box left and top corner or the crop's
+                current_polygons[:, :2] = np.maximum(current_polygons[:, :2],
+                                                  rect[:2])
+                # adjust to crop (by substracting crop's left,top)
+                current_polygons[:, :2] -= rect[:2]
+
+                # top and left
+                current_polygons[:, 3::3] = np.maxmum(current_polygons[:, 3::3],
+                                                    rect[1::-1])
+                current_polygons[:, 3::3] -= rect[1::-1]
+
+                current_polygons[:, 2::5] = np.minimum(current_polygons[:, 2::5],
+                                                    rect[2:])
+                current_polygons[:, 2::5] -= rect[2:]
+
+                current_polygons[:, 4:6] = np.minimum(current_polygons[:, 4:6],
+                                                  rect[2:])
+                # adjust to crop (by substracting crop's left,top)
+                current_polygons[:, 4:6] -= rect[:2]
+                current_rboxes = box_utils.polygon_to_rbox(current_polygons)
+                return current_image, 
+                        np.hstack([current_boxes, current_polygons, current_rboxes]),
+                        current_labels
 
 class Expand(object):
     def __init__(self, mean):
@@ -342,9 +400,10 @@ class Expand(object):
         image = expand_image
 
         boxes = boxes.copy()
-        boxes[:, :2] += (int(left), int(top))
-        boxes[:, 2:] += (int(left), int(top))
-
+        #boxes[:, :2] += (int(left), int(top))
+        #boxes[:, 2:] += (int(left), int(top))
+        # modify using polygon (x1, y1, x2, y2, x3,y3, x4, y4)
+        boxes += ((int(left), int(top)) * int(boxes.shape[-1]/2))
         return image, boxes, labels
 
 
@@ -420,6 +479,28 @@ class SSDAugmentation(object):
             Expand(self.mean),
             RandomSampleCrop(),
             RandomMirror(),
+            ToPercentCoords(),
+            Resize(self.size),
+            SubtractMeans(self.mean)
+            #Normalize(self.mean, self.std)
+        ])
+
+    def __call__(self, img, boxes, labels):
+        return self.augment(img, boxes, labels)
+
+
+class TBPPAugmentation(object):
+    def __init__(self, size=320, mean=(0.5, 0.5, 0.5), std=(0.5,0.5,0.5)):
+        self.mean = mean
+        self.std = std
+        self.size = size
+        self.augment = Compose([
+            ConvertFromInts(),
+            ToAbsoluteCoords(),
+            PhotometricDistort(),
+            Expand(self.mean),
+            RandomSampleCrop(True),
+            #RandomMirror(),
             ToPercentCoords(),
             Resize(self.size),
             SubtractMeans(self.mean)

@@ -95,6 +95,6 @@ if __name__ == "__main__":
     image_names, bboxes, texts = convert("/home/mcmas/data/SynthText", None, True)
     meta = dict()
     meta["image_names"] = image_names
-    meta["bboxes"] = bboxes
+    meta["polygons"] = bboxes
     meta["texts"] = texts
     torch.save(meta, "/home/mcmas/data/SynthText/gt.pt")

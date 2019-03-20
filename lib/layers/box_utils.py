@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import torch
-
+import numpy as np
 
 def point_form(boxes):
     """ Convert prior_boxes to (xmin, ymin, xmax, ymax)
@@ -87,7 +87,7 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     """
     # jaccard index
     overlaps = jaccard(
-        truths,
+        truths[:4],
         point_form(priors)
     )
     # (Bipartite Matching)
@@ -107,10 +107,16 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     matches = truths[best_truth_idx]          # Shape: [num_priors,4]
     conf = labels[best_truth_idx] + 1         # Shape: [num_priors]
     conf[best_truth_overlap < threshold] = 0  # label as background
-    loc = encode(matches, priors, variances)
-    loc_t[idx] = loc    # [num_priors,4] encoded offsets to learn
-    conf_t[idx] = conf  # [num_priors] top class label for each prior
-
+    # multibox
+    if matches.shape[-1] == 4:
+        loc = encode(matches, priors, variances)
+        loc_t[idx] = loc    # [num_priors,4] encoded offsets to learn
+        conf_t[idx] = conf  # [num_priors] top class label for each prior
+    # textbox
+    elif matched.shape[-1] == 17:
+        loc_t[idx,:,4] = encode(matches[:,:4], priors, variances)
+        loc_t[idx,:,4:12] = encode_polygon(matches[:,4:12], priors, variances)
+        loc_t[idx,:,12:] = encode_rbox(matches[:,12:], priors, variances)
 
 def encode(matched, priors, variances, eps=1e-5):
     """Encode the variances from the priorbox layers into the ground truth boxes
@@ -135,6 +141,41 @@ def encode(matched, priors, variances, eps=1e-5):
     # return target for smooth_l1_loss
     return torch.cat([g_cxcy, g_wh], 1)  # [num_priors,4]
 
+def encode_polygon(matched, priors, variances, eps=1e-5):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 8].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded polygons (tensor), Shape: [num_priors, 8]
+    """
+    p_offsets = priors[:, 2:] / 2
+    p_boxes = torch.cat([priors[:, :2] - p_offsets, priors[:, :2] + p_offsets], dim=1)
+    p_polygons = p_boxes[:, (0, 1, 2, 1, 2, 3, 0, 3)]
+    p_priors = torch.from_numpy(np.tile(priors[:, 2:], (1, 4))).to(matches.device)
+    p_variances = torch.from_numpy(np.tile(variances, (1, 4))).to(matches.device)
+    return (matches - p_polygons) / p_priors / p_variances  # [num_priors, 8]
+
+def encode_rbox(matched, priors, variances, eps=1e-5):
+    """Encode the variances from the priorbox layers into the ground truth boxes
+    we have matched (based on jaccard overlap) with the prior boxes.
+    Args:
+        matched: (tensor) Coords of ground truth for each prior in point-form
+            Shape: [num_priors, 5].
+        priors: (tensor) Prior boxes in center-offset form
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        encoded boxes (tensor), Shape: [num_priors, 5]
+    """
+    g_cxcy = (matched[:, :2] - priors[:, :2]) / priors[:, 2:] / variances
+    g_wh = (matched[:, 2:4] - priors[:, :2]) / priors[:, 2:] / variances
+    g_h = torch.log((matched[:, 4] / priors[:, 3]) + eps) / variances[1]
+    return torch.cat([g_cxcy, g_wh, g_h], dim=1) # [num_priors, 5]
 
 # Adapted from https://github.com/Hakuyume/chainer-ssd
 def decode(loc, priors, variances):
@@ -237,3 +278,28 @@ def nms(boxes, scores, overlap=0.5, top_k=200):
         # keep only elements with an IoU <= overlap
         idx = idx[IoU.le(overlap)]
     return keep, count
+
+def polygon_to_rbox(polygons):
+    eps = 1e-10 
+    # two points at the center of the left and right edge plus height
+    polygons = np.reshape(polygons, (len(polygons), -1, 2))
+    tl = polygons[:,0,:]
+    tr = polygons[:,1,:]
+    br = polygons[:,2,:]
+    bl = polygons[:,3,:]
+    #length of top and bottom edge
+    dt, db = tr-tl, bl-br
+    #height is mean between distance from top to bottom right and distance from top edge to bottom left
+    h = (np.linalg.norm(np.cross(dt, tl-br).reshape(-1,1), axis=1) + np.linalg.norm(np.cross(dt, tr-bl).reshape(-1,1), axis=1))/(2*np.linalg.norm(dt+eps, axis=1))
+    p1 = (tl + bl) / 2.
+    p2 = (tr + br) / 2.
+    return np.hstack((p1, p2, h.reshape(-1,1)))
+ 
+def polygon_to_bbox(polygons):
+    xmin = np.min(polygons[:,0:8:2], axis=1)
+    ymin = np.min(polygons[:,1:8:2], axis=1)
+    xmax = np.max(polygons[:,0:8:2], axis=1)
+    ymax = np.max(polygons[:,1:8:2], axis=1)
+    return np.stack([xmin, ymin, xmax, ymax]).T
+    
+    
